@@ -1,0 +1,76 @@
+import ns.core
+import ns.network
+import ns.wifi
+import ns.mobility
+import ns.internet
+import ns.applications
+
+
+def main():
+    # Create nodes (vehicles)
+    nodes = ns.network.NodeContainer()
+    nodes.Create(2)  # Creating 2 nodes (vehicles)
+
+    # Set up the Wi-Fi and PHY configuration
+    wifi = ns.wifi.WifiHelper.Default()
+    wifi.SetRemoteStationManager("ns3::ConstantRateWifiManager", "DataMode",
+                                 ns.core.StringValue("OfdmRate6MbpsBW10MHz"),
+                                 "ControlMode", ns.core.StringValue("OfdmRate6MbpsBW10MHz"))
+
+    # Create a simple channel and configure the PHY layer
+    wifiChannel = ns.wifi.YansWifiChannelHelper.Default()
+    phy = ns.wifi.YansWifiPhyHelper.Default()
+    phy.SetChannel(wifiChannel.Create())
+
+    # Configure MAC layer
+    wifiMac = ns.wifi.WifiMacHelper()
+    wifiMac.SetType("ns3::StaWifiMac", "Ssid", ns.wifi.SsidValue(ns.wifi.Ssid("VANET_SSID")))
+
+    # Set up the mobility model (moving vehicles)
+    mobility = ns.mobility.MobilityHelper()
+    mobility.SetPositionAllocator("ns3::RandomRectanglePositionAllocator", "X",
+                                  ns.core.StringValue("ns3::UniformRandomVariable[Min=0|Max=1000]"),
+                                  "Y", ns.core.StringValue("ns3::UniformRandomVariable[Min=0|Max=1000]"))
+    mobility.SetMobilityModel("ns3::ConstantVelocityMobilityModel")
+    mobility.Install(nodes)
+
+    # Install Wi-Fi on nodes (vehicles)
+    devices = wifi.Install(phy, wifiMac, nodes)
+
+    # Set up internet stack (IP stack)
+    stack = ns.internet.InternetStackHelper()
+    stack.Install(nodes)
+
+    # Assign IP addresses to vehicles
+    address = ns.internet.Ipv4AddressHelper()
+    address.SetBase(ns.core.Ipv4Address("10.1.1.0"), ns.core.Ipv4Mask("255.255.255.0"))
+    interfaces = address.Assign(devices)
+
+    # Set up UDP traffic (vehicle 0 sends data to vehicle 1)
+    port = 9
+    onOffHelper = ns.applications.OnOffHelper("ns3::UdpSocketFactory",
+                                              ns.network.InetSocketAddress(interfaces.GetAddress(1), port))
+    onOffHelper.SetAttribute("DataRate", ns.core.DataRateValue(ns.core.DataRate("10Mbps")))
+    onOffHelper.SetAttribute("PacketSize", ns.core.UintegerValue(1024))
+    app = onOffHelper.Install(nodes.Get(0))  # Vehicle 0 sending data
+    app.Start(ns.core.Seconds(1.0))
+    app.Stop(ns.core.Seconds(10.0))
+
+    # Set up the packet sink (vehicle 1 receives data)
+    sinkHelper = ns.applications.PacketSinkHelper("ns3::UdpSocketFactory",
+                                                  ns.network.InetSocketAddress(ns.network.Ipv4Address.GetAny(), port))
+    sinkApp = sinkHelper.Install(nodes.Get(1))  # Vehicle 1 receiving data
+    sinkApp.Start(ns.core.Seconds(0.0))
+    sinkApp.Stop(ns.core.Seconds(10.0))
+
+    # Enable pcap tracing (optional, for visualizing the network traffic)
+    ns.core.AnimationInterface("vanet-animation.xml")
+    ns.network.PcapHelper.EnablePcapAll("vanet-trace")
+
+    # Run the simulation
+    ns.core.Simulator.Run()
+    ns.core.Simulator.Destroy()
+
+
+if _name_ == "_main_":
+    main()
